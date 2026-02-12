@@ -8,22 +8,28 @@ import pymupdf
 
 
 def scan_pages(pdf_path: Path) -> None:
+    print(f"処理開始：{str(pdf_path)}")
     doc = pymupdf.open(pdf_path)
     problems: list[dict[str, str | int | tuple[float, float, float, float]]] = []
 
     reg_kangxi_radicals = re.compile(r"[\u2F00-\u2FD5]")
-    for i in range(doc.page_count):
-        page = doc[i]
+    for page_index in range(doc.page_count):
+        page = doc[page_index]
         nombre = page.get_label()
         if nombre == "":
-            nombre == f"{(i + 1):03}/{doc.page_count:03}"
+            nombre = f"{(page_index + 1):03}/{doc.page_count:03}"
+        else:
+            nombre = f"p.{nombre}"
+
+        # search for invalid text pattern
         for word in page.get_text("words"):
             text = word[4]
             rect = word[0:4]
             for kangxi_match in reg_kangxi_radicals.finditer(text):
+                print(f"{nombre} 康煕部首「{kangxi_match.group()}」を検出")
                 problems.append(
                     {
-                        "page_index": i,
+                        "page_index": page_index,
                         "nombre": nombre,
                         "text": text,
                         "position": kangxi_match.start(),
@@ -32,14 +38,37 @@ def scan_pages(pdf_path: Path) -> None:
                     }
                 )
             for bad_match in re.finditer(r"判夕", text):
+                print(f"{nombre} 「判夕」（はんゆう）を検出")
                 problems.append(
                     {
-                        "page_index": i,
+                        "page_index": page_index,
                         "nombre": nombre,
                         "text": text,
                         "position": bad_match.start(),
                         "found": bad_match.group(),
                         "rect": rect,
+                    }
+                )
+
+        # search for large image
+        for img in page.get_images():
+            xref = img[0]
+            image_stream = doc.xref_stream(xref)
+            image_size = len(image_stream)
+            if image_size < 6 * 1024 * 1024:
+                continue
+
+            print(f"{nombre} 6MBを超える画像を検出")
+            img_rects = page.get_image_rects(xref)
+            for rect in img_rects:
+                problems.append(
+                    {
+                        "page_index": page_index,
+                        "nombre": nombre,
+                        "text": f"Large image: {image_size / (1024 * 1024):.2f}MB",
+                        "position": -1,
+                        "found": "",
+                        "rect": (rect.x0, rect.y0, rect.x1, rect.y1),
                     }
                 )
 
@@ -59,9 +88,15 @@ def scan_pages(pdf_path: Path) -> None:
         for g in grouped_problems:
             annot = page_to_annotate.add_rect_annot(pymupdf.Rect(g["rect"]))
             color = annot.colors
-            color["stroke"] = [0.0, 0.0, 1.0]
+            if g["position"] != -1:
+                color["stroke"] = [1.0, 0.0, 0.0]
+                annot.set_info(
+                    content=f"{int(g['position']) + 1}文字目「{g['found']}」"
+                )
+            else:
+                color["stroke"] = [0.0, 0.0, 1.0]
+                annot.set_info(content=g["text"])
             annot.set_colors(color)
-            annot.set_info(content=f"{int(g['position']) + 1}文字目「{g['found']}」")
             annot.update()
 
     annot_pdf.save(annot_pdf_path, garbage=3, clean=True, pretty=True)

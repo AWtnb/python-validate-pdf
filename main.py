@@ -57,7 +57,12 @@ def scan_pages(pdf_path: Path) -> None:
         page_to_annotate = annot_pdf[idx]
         grouped_problems = list(group)
         for g in grouped_problems:
-            page_to_annotate.draw_rect(pymupdf.Rect(g["rect"]), color=(1, 0, 0))
+            annot = page_to_annotate.add_rect_annot(pymupdf.Rect(g["rect"]))
+            color = annot.colors
+            color["stroke"] = [0.0, 0.0, 1.0]
+            annot.set_colors(color)
+            annot.set_info(content=f"{int(g['position']) + 1}文字目「{g['found']}」")
+            annot.update()
 
     annot_pdf.save(annot_pdf_path, garbage=3, clean=True, pretty=True)
 

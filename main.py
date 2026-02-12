@@ -37,15 +37,20 @@ def scan_pages(pdf_path: Path) -> None:
                         "rect": rect,
                     }
                 )
-            for bad_match in re.finditer(r"判夕", text):
+
+            conversion_typo = "判夕"  # 「はんゆう」
+            positions = [
+                pos for pos in range(len(text)) if text.startswith(conversion_typo, pos)
+            ]
+            for pos in positions:
                 print(f"{nombre} 「判夕」（はんゆう）を検出")
                 problems.append(
                     {
                         "page_index": page_index,
                         "nombre": nombre,
                         "text": text,
-                        "position": bad_match.start(),
-                        "found": bad_match.group(),
+                        "position": pos + 1,
+                        "found": "夕（ゆう）",
                         "rect": rect,
                     }
                 )

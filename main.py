@@ -1,6 +1,7 @@
 import json
 import re
 import sys
+from itertools import groupby
 from pathlib import Path
 
 import pymupdf
@@ -8,7 +9,7 @@ import pymupdf
 
 def scan_pages(pdf_path: Path) -> None:
     doc = pymupdf.open(pdf_path)
-    problems = []
+    problems: list[dict[str, str | int | tuple[float, float, float, float]]] = []
 
     reg_kangxi_radicals = re.compile(r"[\u2F00-\u2FD5]")
     for i in range(doc.page_count):
@@ -18,17 +19,50 @@ def scan_pages(pdf_path: Path) -> None:
             nombre == f"{(i + 1):03}/{doc.page_count:03}"
         for word in page.get_text("words"):
             text = word[4]
-            kangxis = reg_kangxi_radicals.findall(text)
-            for k in kangxis:
-                problems.append({"nombre": nombre, "text": text, "found": k})
-            if "判夕" in text:
-                problems.append({"nombre": nombre, "text": text, "found": "判夕"})
+            rect = word[0:4]
+            for kangxi_match in reg_kangxi_radicals.finditer(text):
+                problems.append(
+                    {
+                        "page_index": i,
+                        "nombre": nombre,
+                        "text": text,
+                        "position": kangxi_match.start(),
+                        "found": kangxi_match.group(),
+                        "rect": rect,
+                    }
+                )
+            for bad_match in re.finditer(r"判夕", text):
+                problems.append(
+                    {
+                        "page_index": i,
+                        "nombre": nombre,
+                        "text": text,
+                        "position": bad_match.start(),
+                        "found": bad_match.group(),
+                        "rect": rect,
+                    }
+                )
+
+    out_json_path = pdf_path.with_name(f"{pdf_path.stem}_problems.json")
+    with open(out_json_path, "w", encoding="utf-8") as f:
+        json.dump(problems, f, indent=2, ensure_ascii=False)
+
+    annot_pdf = pymupdf.Document()
+    annot_pdf_path = out_json_path.with_suffix(".pdf")
+
+    for idx, (page_index, group) in enumerate(
+        groupby(problems, key=lambda p: p["page_index"])
+    ):
+        annot_pdf.insert_pdf(doc, from_page=page_index, to_page=page_index)
+        page_to_annotate = annot_pdf[idx]
+        grouped_problems = list(group)
+        for g in grouped_problems:
+            page_to_annotate.draw_rect(pymupdf.Rect(g["rect"]), color=(1, 0, 0))
+
+    annot_pdf.save(annot_pdf_path, garbage=3, clean=True, pretty=True)
 
     doc.close()
-
-    out_path = pdf_path.with_name(f"{pdf_path.stem}_problems.json")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(problems, f, indent=2, ensure_ascii=False)
+    annot_pdf.close()
 
 
 if __name__ == "__main__":

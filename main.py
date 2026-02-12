@@ -72,6 +72,10 @@ def scan_pages(pdf_path: Path) -> None:
                     }
                 )
 
+    if len(problems) < 1:
+        print(f"問題は見つかりませんでした：{str(pdf_path)}")
+        return
+
     out_json_path = pdf_path.with_name(f"{pdf_path.stem}_problems.json")
     with open(out_json_path, "w", encoding="utf-8") as f:
         json.dump(problems, f, indent=2, ensure_ascii=False)
